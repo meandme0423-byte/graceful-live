@@ -1,0 +1,54 @@
+name: Auto Record Instagram Live
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 每 10 分钟自动检查运行一次
+  workflow_dispatch: # 支持网页上手动点运行测试
+
+jobs:
+  check-and-record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python & FFmpeg
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install pyinstalive requests
+
+      - name: Run Recording Script
+        env:
+          IG_USER: ${{ secrets.IG_USER }}
+          IG_PASS: ${{ secrets.IG_PASS }}
+          TARGET_USER: ${{ secrets.TARGET_USER }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_ID: ${{ secrets.TG_ID }}
+        run: |
+          python -c "
+          import os, subprocess, requests
+
+          ig_user = os.environ['IG_USER']
+          ig_pass = os.environ['IG_PASS']
+          raw_targets = os.environ['TARGET_USER']
+          tg_token = os.environ['TG_TOKEN']
+          tg_id = os.environ['TG_ID']
+
+          # 解析多个目标用户名（用逗号分割）
+          targets = [t.strip() for t in raw_targets.split(',') if t.strip()]
+
+          for target in targets:
+              print(f'正在检查账号: {target}')
+              cmd = f'pyinstalive --username {ig_user} --password {ig_pass} --download {target}'
+              res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+              # 如果成功录到视频，通过 Telegram 发送通知
+              if 'Downloaded' in res.stdout or 'Finished' in res.stdout:
+                  msg = f'已成功自动录制目标主播 @{target} 的直播片段！'
+                  requests.post(f'https://api.telegram.org/bot{tg_token}/sendMessage', data={'chat_id': tg_id, 'text': msg})
+          "
