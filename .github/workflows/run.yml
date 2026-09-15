@@ -2,7 +2,7 @@ name: Auto Record Instagram Live
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # 每 10 分钟自动检查运行一次
+    - cron: '*/10 * * * *' # 每 10 分钟自动运行一次
   workflow_dispatch: # 支持网页上手动点运行测试
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
-          pip install pyinstalive requests
+          pip install git+https://github.com/dvingerh/PyInstaLive.git requests
 
       - name: Run Recording Script
         env:
@@ -39,7 +39,6 @@ jobs:
           tg_token = os.environ['TG_TOKEN']
           tg_id = os.environ['TG_ID']
 
-          # 解析多个目标用户名（用逗号分割）
           targets = [t.strip() for t in raw_targets.split(',') if t.strip()]
 
           for target in targets:
@@ -47,7 +46,6 @@ jobs:
               cmd = f'pyinstalive --username {ig_user} --password {ig_pass} --download {target}'
               res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-              # 如果成功录到视频，通过 Telegram 发送通知
               if 'Downloaded' in res.stdout or 'Finished' in res.stdout:
                   msg = f'已成功自动录制目标主播 @{target} 的直播片段！'
                   requests.post(f'https://api.telegram.org/bot{tg_token}/sendMessage', data={'chat_id': tg_id, 'text': msg})
