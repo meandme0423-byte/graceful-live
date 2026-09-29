@@ -22,37 +22,41 @@ except Exception as e:
     sys.exit(1)
 
 for TARGET in TARGETS:
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在通过 API 检测 @{TARGET} 是否开播...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在检测 @{TARGET} 是否开播...")
 
     try:
-        # 1. 获取目标用户的 user_id
         user_id = cl.user_id_from_username(TARGET)
-        
-        # 2. 直接发起 IG 原生 Private API 请求获取直播流，绕过 instagrapi 的方法变动
         mpd_url = None
+        
+        # 1. 优先从 IG 现行的动态/故事流接口查询直播
         try:
-            res = cl.private_request(f"live/user/{user_id}/")
-            broadcast = res.get("broadcast") or {}
+            res = cl.private_request("feed/reels_media/", params={"user_ids": str(user_id)})
+            reels = res.get("reels", {}) or res.get("reels_media", {})
+            user_reel = reels.get(str(user_id), {}) if isinstance(reels, dict) else {}
+            broadcast = user_reel.get("broadcast") or {}
             mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
         except Exception:
-            # 备用路径：通过 reels/story 接口二次确认
+            pass
+
+        # 2. 备用逻辑：从个人主页详情接口查询
+        if not mpd_url:
             try:
-                res = cl.private_request("feed/reels_media/", params={"user_ids": user_id})
-                reels = res.get("reels", {}).get(str(user_id), {})
-                broadcast = reels.get("broadcast") or {}
+                res_info = cl.private_request(f"users/{user_id}/info/")
+                user_info = res_info.get("user", {})
+                broadcast = user_info.get("broadcast") or {}
                 mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
             except Exception:
                 pass
 
         if not mpd_url:
-            print(f"[-] @{TARGET} 当前未开播（或未检测到推流地址）。")
+            print(f"[-] @{TARGET} 当前未开播（未检测到有效直播推流）。")
             continue
 
         print(f"[+] 检测到 @{TARGET} 正在直播！成功提取推流地址，准备拉流录制...")
 
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        # 3. 使用 ffmpeg 录制推流地址
+        # 3. 调用 ffmpeg 录制
         cmd_record = [
             "ffmpeg",
             "-y",
