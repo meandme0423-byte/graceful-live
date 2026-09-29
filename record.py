@@ -2,6 +2,14 @@ import os
 import sys
 import subprocess
 from datetime import datetime
+
+# 自动检查并安装 yt-dlp（用于从 MPD 流中自动锁死 720p/1080p 最高原画质）
+try:
+    import yt_dlp
+except ImportError:
+    print("[+] 正在自动安装 yt-dlp 以确保抓取高清画质...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "yt-dlp"], check=True)
+
 from instagrapi import Client
 
 SESSION_ID = os.environ.get("IG_SESSION_ID", "").replace("sessionid=", "").strip()
@@ -79,16 +87,16 @@ for TARGET in TARGETS:
             print(f"[-] @{TARGET} 未能获取到有效的 MPD 推流地址。")
             continue
 
-        print(f"[+] 成功抓取到直播推流！开始拉流录制...")
+        print(f"[+] 成功抓取到直播推流！开始拉流录制最高画质...")
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
+        # 改用 yt-dlp 接管 MPD 下载，自动挑选最高画质轨道 (dash-hd-v)
         cmd_record = [
-            "ffmpeg",
-            "-y",
-            "-rw_timeout", "15000000",  # 15 秒收不到新切片数据就自动终止并退出
-            "-i", mpd_url,
-            "-c", "copy",
-            filename
+            "yt-dlp",
+            "-f", "bestvideo+bestaudio/best",  # 强制选择最佳画质与音轨
+            "--concurrent-fragments", "5",     # 5 线程多并发下载，防网络卡顿
+            "-o", filename,
+            mpd_url
         ]
 
         subprocess.run(cmd_record, check=True)
