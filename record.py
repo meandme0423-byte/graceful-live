@@ -5,7 +5,8 @@ import subprocess
 from instagrapi import Client
 
 def main():
-    session_id = os.environ.get("SESSION_ID")
+    # 兼容 IG_SESSION_ID 与 SESSION_ID 两种命名
+    session_id = os.environ.get("IG_SESSION_ID") or os.environ.get("SESSION_ID")
     target_username = os.environ.get("TARGET_USERNAME")
 
     if not session_id or not target_username:
@@ -48,7 +49,7 @@ def main():
     cmd_record = [
         "ffmpeg",
         "-y",
-        "-rw_timeout", "30000000",   # 连续 30 秒收不到新数据自动退出并封包
+        "-rw_timeout", "30000000",   # 连续 30 秒收不到新数据自动退出并正常保存
         "-i", mpd_url,
         "-c", "copy",
         "-movflags", "+faststart",    # 补全 MP4 索引
