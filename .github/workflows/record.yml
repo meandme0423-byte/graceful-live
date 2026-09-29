@@ -2,13 +2,12 @@ name: IG Live Auto Recorder
 
 on:
   schedule:
-    # 每 5 分钟自动检测一次开播状态
-    - cron: '*/5 * * * *'
-  workflow_dispatch: # 手动触发按钮
+    - cron: '*/5 * * * *'  # 每 5 分钟自动检测一次
+  workflow_dispatch:        # 支持手动触发
 
 concurrency:
-  group: ig-live-recording
-  cancel-in-progress: false
+  group: ig-recorder
+  cancel-in-progress: false # 正在录制时，不打断已有任务
 
 jobs:
   check-and-record:
@@ -20,26 +19,23 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          pip install requests yt-dlp
+          pip install instagrapi
 
       - name: Check and Record Stream
         env:
           IG_SESSION_ID: ${{ secrets.IG_SESSION_ID }}
           TARGET_USERNAME: ${{ secrets.TARGET_USERNAME }}
-        run: |
-          python record.py
+        run: python record.py
 
       - name: Upload Video Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ig-live-${{ github.run_id }}
-          path: ./*.mp4
-          retention-days: 7 # 视频保留 7 天，过期自动清理
+          name: ig-live-videos
+          path: "*.mp4"
+          retention-days: 7
