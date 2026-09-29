@@ -26,37 +26,62 @@ for TARGET in TARGETS:
 
     try:
         user_id = cl.user_id_from_username(TARGET)
-        mpd_url = None
+        print(f"[+] 获取到 @{TARGET} 的 UID: {user_id}")
         
-        # 1. 优先从 IG 现行的动态/故事流接口查询直播
-        try:
-            res = cl.private_request("feed/reels_media/", params={"user_ids": str(user_id)})
-            reels = res.get("reels", {}) or res.get("reels_media", {})
-            user_reel = reels.get(str(user_id), {}) if isinstance(reels, dict) else {}
-            broadcast = user_reel.get("broadcast") or {}
-            mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
-        except Exception:
-            pass
+        mpd_url = None
+        broadcast_id = None
 
-        # 2. 备用逻辑：从个人主页详情接口查询
-        if not mpd_url:
+        # 通道 1: 模拟点击头像 (feed/user/{user_id}/story/)
+        try:
+            res_story = cl.private_request(f"feed/user/{user_id}/story/")
+            broadcast = res_story.get("broadcast") or res_story.get("reel", {}).get("broadcast") or {}
+            if broadcast:
+                broadcast_id = broadcast.get("id")
+                mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+        except Exception as e:
+            print(f"[!] 通道 1 提示: {e}")
+
+        # 通道 2: 主页详情接口 (users/{user_id}/info/)
+        if not mpd_url and not broadcast_id:
             try:
                 res_info = cl.private_request(f"users/{user_id}/info/")
                 user_info = res_info.get("user", {})
                 broadcast = user_info.get("broadcast") or {}
-                mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
-            except Exception:
-                pass
+                broadcast_id = user_info.get("live_broadcast_id") or broadcast.get("id")
+                if broadcast and not mpd_url:
+                    mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+            except Exception as e:
+                print(f"[!] 通道 2 提示: {e}")
+
+        # 通道 3: 全局直播广播池 (feed/reels_tray/)
+        if not mpd_url and not broadcast_id:
+            try:
+                res_tray = cl.private_request("feed/reels_tray/")
+                broadcasts = res_tray.get("broadcasts", [])
+                for b in broadcasts:
+                    if str(b.get("user", {}).get("pk")) == str(user_id):
+                        broadcast_id = b.get("id")
+                        mpd_url = b.get("dash_playback_url") or b.get("dash_abr_playback_url")
+                        break
+            except Exception as e:
+                print(f"[!] 通道 3 提示: {e}")
+
+        # 如果拿到广播 ID 但缺失推流 URL，二次请求直播详情
+        if broadcast_id and not mpd_url:
+            try:
+                print(f"[+] 识别到直播广播 ID: {broadcast_id}，正在提取 MPD 推流...")
+                res_live = cl.private_request(f"live/{broadcast_id}/info/")
+                mpd_url = res_live.get("dash_playback_url") or res_live.get("dash_abr_playback_url")
+            except Exception as e:
+                print(f"[!] 请求直播详情失败: {e}")
 
         if not mpd_url:
-            print(f"[-] @{TARGET} 当前未开播（未检测到有效直播推流）。")
+            print(f"[-] @{TARGET} 未能获取到有效的 MPD 推流地址。")
             continue
 
-        print(f"[+] 检测到 @{TARGET} 正在直播！成功提取推流地址，准备拉流录制...")
-
+        print(f"[+] 成功抓取到直播推流！开始拉流录制...")
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        # 3. 调用 ffmpeg 录制
         cmd_record = [
             "ffmpeg",
             "-y",
