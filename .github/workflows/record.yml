@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: ig-recorder
-  cancel-in-progress: false # 正在录制时，不打断已有任务
+  cancel-in-progress: false
 
 jobs:
   check-and-record:
@@ -15,6 +15,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # 关键步骤：在服务器上安装 ffmpeg 录制工具
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v5
