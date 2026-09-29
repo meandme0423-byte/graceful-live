@@ -28,14 +28,16 @@ for TARGET in TARGETS:
 
     try:
         user_id = cl.user_id_from_username(TARGET)
-        user_live = cl.user_live(user_id)
+        
+        # 使用正确的 instagrapi API 方法获取直播对象
+        broadcast = cl.user_live_broadcast(user_id)
 
         # 判断是否在开播以及是否存在推流地址
-        if not user_live or not getattr(user_live, "dash_playback_url", None):
+        if not broadcast or not getattr(broadcast, "dash_playback_url", None):
             print(f"[-] @{TARGET} 当前未开播。")
             continue
 
-        mpd_url = user_live.dash_playback_url
+        mpd_url = broadcast.dash_playback_url
         print(f"[+] 检测到 @{TARGET} 正在直播！成功提取推流地址，准备拉流录制...")
 
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
@@ -53,4 +55,8 @@ for TARGET in TARGETS:
         print(f"[SUCCESS] @{TARGET} 直播录制完毕，已保存为: {filename}")
 
     except Exception as e:
-        print(f"[!] 处理 @{TARGET} 时发生错误: {e}")
+        err_str = str(e).lower()
+        if "not live" in err_str or "broadcast" in err_str or "none" in err_str:
+            print(f"[-] @{TARGET} 当前未开播。")
+        else:
+            print(f"[!] 处理 @{TARGET} 时发生错误: {e}")
