@@ -25,25 +25,34 @@ for TARGET in TARGETS:
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在通过 API 检测 @{TARGET} 是否开播...")
 
     try:
+        # 1. 获取目标用户的 user_id
         user_id = cl.user_id_from_username(TARGET)
         
-        # 尝试通过 API 获取直播对象
-        broadcast = None
+        # 2. 直接发起 IG 原生 Private API 请求获取直播流，绕过 instagrapi 的方法变动
+        mpd_url = None
         try:
-            broadcast = cl.user_live_broadcast(user_id)
-        except Exception as api_err:
-            print(f"[!] 直播接口查询反馈: {api_err}")
+            res = cl.private_request(f"live/user/{user_id}/")
+            broadcast = res.get("broadcast") or {}
+            mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+        except Exception:
+            # 备用路径：通过 reels/story 接口二次确认
+            try:
+                res = cl.private_request("feed/reels_media/", params={"user_ids": user_id})
+                reels = res.get("reels", {}).get(str(user_id), {})
+                broadcast = reels.get("broadcast") or {}
+                mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+            except Exception:
+                pass
 
-        # 如果没有获取到 broadcast，打印提示
-        if not broadcast or not getattr(broadcast, "dash_playback_url", None):
-            print(f"[-] @{TARGET} 当前未检测到有效直播流。")
+        if not mpd_url:
+            print(f"[-] @{TARGET} 当前未开播（或未检测到推流地址）。")
             continue
 
-        mpd_url = broadcast.dash_playback_url
         print(f"[+] 检测到 @{TARGET} 正在直播！成功提取推流地址，准备拉流录制...")
 
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
+        # 3. 使用 ffmpeg 录制推流地址
         cmd_record = [
             "ffmpeg",
             "-y",
