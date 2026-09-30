@@ -88,13 +88,20 @@ for TARGET in TARGETS:
             continue
 
         print(f"[+] 成功抓取到直播推流！开始拉流录制最高画质...")
+        
+        # 保持保存为 .mp4 格式
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        # 改用 yt-dlp 接管 MPD 下载，自动挑选最高画质轨道 (dash-hd-v)
+        # 改用 yt-dlp 接管 MPD 下载，并加入画质锁和防卡死超时配置
         cmd_record = [
             "yt-dlp",
-            "-f", "bestvideo+bestaudio/best",  # 强制选择最佳画质与音轨
-            "--concurrent-fragments", "5",     # 5 线程多并发下载，防网络卡顿
+            "-f", "bestvideo+bestaudio/best",
+            "-S", "res,br",                 # 强制按分辨率和码率最高排序，锁死原画
+            "--remux-video", "mp4",         # 强制调用 ffmpeg 整理文件头，确保 MP4 不损坏
+            "--concurrent-fragments", "5",  # 5 线程多并发下载，防网络卡顿
+            "--socket-timeout", "30",       # 30秒无数据传输判定为下播，自动正常结束保存
+            "--retries", "10",              # 网络波动重试次数
+            "--fragment-retries", "10",     # 分片获取失败重试次数
             "-o", filename,
             mpd_url
         ]
