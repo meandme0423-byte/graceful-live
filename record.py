@@ -90,12 +90,25 @@ for TARGET in TARGETS:
             print(f"[-] @{TARGET} 未能获取到有效的 MPD 推流地址。")
             continue
 
-        print(f"[+] 成功抓取到直播推流！开始拉流录制最高画质...")
+        print(f"[+] 成功抓取到直播推流！正在检测画质清单并开始录制...")
+
+        # 【新增诊断】打印当前推流地址中包含的所有可用画质轨道清单
+        try:
+            print("[+] --- yt-dlp 可用画质列表开始 ---")
+            subprocess.run([
+                "yt-dlp",
+                "--user-agent", ig_user_agent,
+                "-F",
+                mpd_url
+            ], check=False)
+            print("[+] --- yt-dlp 可用画质列表结束 ---")
+        except Exception as e:
+            print(f"[!] 打印画质列表异常: {e}")
         
         # 保持保存为 .mp4 格式
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        # 【核心修改】加入 --user-agent 伪装，避开 CDN 拦截，同时锁死最高原画质
+        # 正式下载命令
         cmd_record = [
             "yt-dlp",
             "-f", "bestvideo+bestaudio/best",
