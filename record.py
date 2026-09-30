@@ -29,6 +29,9 @@ except Exception as e:
     print(f"[!] SessionID 认证失败: {e}")
     sys.exit(1)
 
+# 获取 instagrapi 正在使用的 Android App User-Agent，供 yt-dlp 伪装使用
+ig_user_agent = getattr(cl, "user_agent", "Instagram 269.0.0.18.75 Android (33/13; 480dpi; 1080x2340; Xiaomi; M2012K11AC; vili; qcom; zh_CN; 383675034)")
+
 for TARGET in TARGETS:
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在检测 @{TARGET} 是否开播...")
 
@@ -92,11 +95,12 @@ for TARGET in TARGETS:
         # 保持保存为 .mp4 格式
         filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        # 改用 yt-dlp 接管 MPD 下载，并加入画质锁和防卡死超时配置
+        # 【核心修改】加入 --user-agent 伪装，避开 CDN 拦截，同时锁死最高原画质
         cmd_record = [
             "yt-dlp",
             "-f", "bestvideo+bestaudio/best",
             "-S", "res,br",                 # 强制按分辨率和码率最高排序，锁死原画
+            "--user-agent", ig_user_agent,  # 伪装成 Instagram 客户端防止 403 拦截
             "--remux-video", "mp4",         # 强制调用 ffmpeg 整理文件头，确保 MP4 不损坏
             "--concurrent-fragments", "5",  # 5 线程多并发下载，防网络卡顿
             "--socket-timeout", "30",       # 30秒无数据传输判定为下播，自动正常结束保存
