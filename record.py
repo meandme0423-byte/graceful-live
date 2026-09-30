@@ -21,7 +21,6 @@ if not SESSION_ID or not TARGETS:
     print("[ERROR] 缺失 Secrets 配置！请检查 IG_SESSION_ID 和 TARGET_USERNAME。")
     sys.exit(1)
 
-# 保留 instagrapi 仅用于验证账号登录状态是否有效
 cl = Client()
 try:
     cl.login_by_sessionid(SESSION_ID)
@@ -30,33 +29,87 @@ except Exception as e:
     print(f"[!] SessionID 认证失败: {e}")
     sys.exit(1)
 
+# 获取 instagrapi 正在使用的 Android App User-Agent，供 yt-dlp 伪装使用
+ig_user_agent = getattr(cl, "user_agent", "Instagram 269.0.0.18.75 Android (33/13; 480dpi; 1080x2340; Xiaomi; M2012K11AC; vili; qcom; zh_CN; 383675034)")
+
 for TARGET in TARGETS:
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在通过网页端通道检测 @{TARGET} 并录制最高画质...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 正在检测 @{TARGET} 是否开播...")
 
     try:
-        filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        user_id = cl.user_id_from_username(TARGET)
+        print(f"[+] 获取到 @{TARGET} 的 UID: {user_id}")
         
-        # 核心改变：直接指定 Instagram 网页端直播间地址
-        web_live_url = f"https://www.instagram.com/{TARGET}/live/"
+        mpd_url = None
+        broadcast_id = None
 
-        # 核心改变：让 yt-dlp 模拟电脑端浏览器，并带上 Cookie 登录态直接抓取高清网页流
+        # 通道 1: 模拟点击头像 (feed/user/{user_id}/story/)
+        try:
+            res_story = cl.private_request(f"feed/user/{user_id}/story/")
+            broadcast = res_story.get("broadcast") or res_story.get("reel", {}).get("broadcast") or {}
+            if broadcast:
+                broadcast_id = broadcast.get("id")
+                mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+        except Exception as e:
+            print(f"[!] 通道 1 提示: {e}")
+
+        # 通道 2: 主页详情接口 (users/{user_id}/info/)
+        if not mpd_url and not broadcast_id:
+            try:
+                res_info = cl.private_request(f"users/{user_id}/info/")
+                user_info = res_info.get("user", {})
+                broadcast = user_info.get("broadcast") or {}
+                broadcast_id = user_info.get("live_broadcast_id") or broadcast.get("id")
+                if broadcast and not mpd_url:
+                    mpd_url = broadcast.get("dash_playback_url") or broadcast.get("dash_abr_playback_url")
+            except Exception as e:
+                print(f"[!] 通道 2 提示: {e}")
+
+        # 通道 3: 全局直播广播池 (feed/reels_tray/)
+        if not mpd_url and not broadcast_id:
+            try:
+                res_tray = cl.private_request("feed/reels_tray/")
+                broadcasts = res_tray.get("broadcasts", [])
+                for b in broadcasts:
+                    if str(b.get("user", {}).get("pk")) == str(user_id):
+                        broadcast_id = b.get("id")
+                        mpd_url = b.get("dash_playback_url") or b.get("dash_abr_playback_url")
+                        break
+            except Exception as e:
+                print(f"[!] 通道 3 提示: {e}")
+
+        # 如果拿到广播 ID 但缺失推流 URL，二次请求直播详情
+        if broadcast_id and not mpd_url:
+            try:
+                print(f"[+] 识别到直播广播 ID: {broadcast_id}，正在提取 MPD 推流...")
+                res_live = cl.private_request(f"live/{broadcast_id}/info/")
+                mpd_url = res_live.get("dash_playback_url") or res_live.get("dash_abr_playback_url")
+            except Exception as e:
+                print(f"[!] 请求直播详情失败: {e}")
+
+        if not mpd_url:
+            print(f"[-] @{TARGET} 未能获取到有效的 MPD 推流地址。")
+            continue
+
+        print(f"[+] 成功抓取到直播推流！开始按顺序稳定录制...")
+        
+        filename = f"{TARGET}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+
+        # 【优化】移除多线程并发，改回单线程严格按时间轴拉流，彻底解决黑屏和音视频不同步问题
         cmd_record = [
             "yt-dlp",
             "-f", "bestvideo+bestaudio/best",
-            "-S", "res,br",                 # 锁死最高分辨率和最高码率
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # 伪装成桌面端 Chrome 浏览器
-            "--add-header", f"Cookie: sessionid={SESSION_ID}",  # 注入你的登录 Cookie
-            "--remux-video", "mp4",         # 自动封装为无损标准 mp4
-            "--concurrent-fragments", "5",  # 多线程并发下载
-            "--socket-timeout", "30",       # 30秒无数据判定为下播并自动收尾
+            "-S", "res,br",                 # 强制按分辨率和码率最高排序
+            "--user-agent", ig_user_agent,  # 伪装成客户端防拦截
+            "--remux-video", "mp4",         # 自动封装为标准 mp4
+            "--socket-timeout", "30",       # 30秒无数据判定为下播并自动收尾保存
             "--retries", "10",              
             "--fragment-retries", "10",     
             "-o", filename,
-            web_live_url
+            mpd_url
         ]
 
         subprocess.run(cmd_record, check=True)
-        print(f"[SUCCESS] @{TARGET} 直播录制完毕，已保存为: {filename}")
+        print(f"[SUCCESS] @{TARGET} 直播录制完毕，已完好保存为: {filename}")
 
     except Exception as e:
-        print(f"[!] 处理 @{TARGET} 时发生错误（若未开播属于正常跳过）: {e}")
+        print(f"[!] 处理 @{TARGET} 时发生错误: {e}")
